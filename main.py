@@ -8,10 +8,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from zoneinfo import ZoneInfo
 
-load_dotenv()
-bot_token = os.getenv("BOT_TOKEN")
+load_dotenv("credentials/.env")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_CREDS_FILE = os.getenv("GOOGLE_CREDS_FILE")
+SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME")
+TIMEZONE = os.getenv("TIMEZONE")
 
-bot = Bot(bot_token)
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 async def send_daily(bot):
