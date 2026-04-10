@@ -1,12 +1,16 @@
+import random
+
 import os
 from dotenv import load_dotenv
 
 import logging
+import aiogram.types as types
 
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 from aiogram.filters import CommandStart, Command
+from aiogram import F
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -77,7 +81,6 @@ async def unsubscribe(message: Message):
     for idx, row in enumerate(rows, start=2):
         if str(row.get("chat_id", "")).strip() == user_id:
             await ws.update_acell(f"C{idx}", "FALSE")
-            await message.answer("Вы отписаны от рассылки.")
             return
 
     await message.answer("Вы не были подписаны.")
@@ -94,10 +97,15 @@ async def get_active_subscribers():
                 subscribers.append(int(chat_id))
     return subscribers
 
+def form_message(title,body):
+    message = f"{title} \n \n {body}"
+    return message
+
 async def send_today_mailings(bot: Bot):
     today_str = date.today().strftime("%d.%m.%Y")
     ws = await get_worksheet("mailings")
     rows = await ws.get_all_records()
+
     for row_index, row in enumerate(rows, start=2):
         row_date = str(row.get("date", "")).strip()
         title = str(row.get("title", "")).strip()
@@ -119,8 +127,8 @@ async def send_today_mailings(bot: Bot):
             subscribers = await get_active_subscribers()
             for subscriber_chat_id in subscribers:
                 try:
-                    # TODO: сделать функцию-шаблон для формирования сообщения
-                    await bot.send_message(subscriber_chat_id, title + "\n" + body)
+                    message_text = form_message(title,body)
+                    await bot.send_message(subscriber_chat_id,message_text)
                 except Exception as e:
                     logging.exception(
                         "Ошибка отправки пользователю %s: %s",
@@ -150,12 +158,100 @@ def setup_scheduler(bot):
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await register_subscriber(message)
-    await message.answer("Welcome")
+
+    entry_text= """Привет! 👋
+Это бот про космическую гонку 1955–1975 годов.
+
+Я присылаю реальные события в те дни, когда они произошли — запуски, аварии, первые полёты и т.д.
+
+👇 Что можно сделать:
+• получить случайное событие
+• включить или отключить ежедневные сообщения
+• узнать подробнее, как работает бот"""
+    kb = [
+        [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
+        [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
+        [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
+        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")],
+    ]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
+
+    await message.answer(entry_text,reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == "subscribe")
+async def subscribe_response(callback: types.CallbackQuery):
+    await register_subscriber(callback)
+    text = """Готово 👍
+Теперь ты будешь получать события космической гонки в реальные даты
+"""
+    await callback.message.answer(text)
+
+
+@dp.callback_query(F.data == "unsubscribe")
+async def unsubscribe_response(callback: types.CallbackQuery):
+    await unsubscribe(callback)
+    text = """Ты отписался.
+Жаль. Впереди ещё много интересных событий.
+Если передумаешь — всегда можно вернуться
+"""
+    await callback.message.answer(text)
+
+
+@dp.callback_query(F.data == "random")
+async def random_response(callback: types.CallbackQuery):
+    await get_random_message(callback.message)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "help")
+async def help_response(callback: types.CallbackQuery):
+    text = """ℹ️ Как работает бот
+
+Бот показывает события космической гонки (1955–1975) по датам.
+
+📅 Если включена подписка — ты получаешь сообщения в те дни, когда события реально произошли.
+Иногда их может быть несколько, иногда — ни одного.
+
+📡 Формат простой:
+короткое описание события + иногда дополнительный контекст и медиа.
+"""
+    await callback.message.answer(text)
+
+
+
+@dp.message(Command("random"))
+async def get_random_message(message:Message):
+    sheet = await get_worksheet("mailings")
+    rows = await sheet.get_all_records()
+    filtered_rows = [row for row in rows if row["title"]]
+    num_elements = len(filtered_rows)
+    chosen_article_idx = random.randint(0,num_elements-1)
+
+    title_prefix = "Конечно, вот случайная новость из космической гонки: \n \n"
+
+    title = f"{title_prefix} {filtered_rows[chosen_article_idx]["title"]}"
+    body = filtered_rows[chosen_article_idx]["body"] 
+
+    message_text = form_message(title,body)
+    await message.answer(message_text)
+
 
 @dp.message()
 async def handle_unknown_command(message: Message):
     await message.answer("Неизвестная команда")
+
+
+
+
+
+
+async def test():
+    sheet = await get_worksheet("mailings")
+    rows = await sheet.get_all_records()
+    for dict in rows:
+        if dict["date"]:
+            print(dict)
 
 
 async def main():
@@ -169,4 +265,5 @@ async def main():
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
