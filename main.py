@@ -8,7 +8,7 @@ import aiogram.types as types
 
 import asyncio
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 from aiogram import F
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -58,7 +58,7 @@ def normalize_bool(value) -> bool:
         return False
     return str(value).strip().lower() in {"true", "1", "yes", "y", "да"}
 
-async def register_subscriber(message: Message):
+async def register_subscriber(message: CallbackQuery | Message):
     ws = await get_worksheet("subscribers")
     records = await ws.get_all_records()
 
@@ -73,7 +73,7 @@ async def register_subscriber(message: Message):
     await ws.append_row([user_id, username, "TRUE"])
 
 @dp.message(Command("unsubscribe"))
-async def unsubscribe(message: Message):
+async def unsubscribe(message: CallbackQuery | Message):
     ws = await get_worksheet("subscribers")
     rows = await ws.get_all_records()
     user_id = str(message.from_user.id)
@@ -180,7 +180,7 @@ async def cmd_start(message: Message):
 
 
 @dp.callback_query(F.data == "subscribe")
-async def subscribe_response(callback: types.CallbackQuery):
+async def subscribe_response(callback: CallbackQuery):
     await register_subscriber(callback)
     text = """Готово 👍
 Теперь ты будешь получать события космической гонки в реальные даты
@@ -189,7 +189,7 @@ async def subscribe_response(callback: types.CallbackQuery):
 
 
 @dp.callback_query(F.data == "unsubscribe")
-async def unsubscribe_response(callback: types.CallbackQuery):
+async def unsubscribe_response(callback: CallbackQuery):
     await unsubscribe(callback)
     text = """Ты отписался.
 Жаль. Впереди ещё много интересных событий.
@@ -199,13 +199,13 @@ async def unsubscribe_response(callback: types.CallbackQuery):
 
 
 @dp.callback_query(F.data == "random")
-async def random_response(callback: types.CallbackQuery):
+async def random_response(callback: CallbackQuery):
     await get_random_message(callback.message)
     await callback.answer()
 
 
 @dp.callback_query(F.data == "help")
-async def help_response(callback: types.CallbackQuery):
+async def help_response(callback: CallbackQuery):
     text = """ℹ️ Как работает бот
 
 Бот показывает события космической гонки (1955–1975) по датам.
@@ -221,7 +221,7 @@ async def help_response(callback: types.CallbackQuery):
 
 
 @dp.message(Command("random"))
-async def get_random_message(message:Message):
+async def get_random_message(message: CallbackQuery | Message):
     sheet = await get_worksheet("mailings")
     rows = await sheet.get_all_records()
     filtered_rows = [row for row in rows if row["title"]]
@@ -265,5 +265,4 @@ async def main():
 
 
 if __name__ == "__main__":
-
     asyncio.run(main())
