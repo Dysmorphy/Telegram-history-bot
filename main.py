@@ -97,8 +97,9 @@ async def get_active_subscribers():
                 subscribers.append(int(chat_id))
     return subscribers
 
-def form_message(title,body):
-    message = f"{title} \n \n {body}"
+def form_message(title,body,media_url):
+    url_message = f"Вот еще информация по этому событию: {media_url}"
+    message = f"{title} \n \n{body} \n \n{url_message}"
     return message
 
 async def send_today_mailings(bot: Bot):
@@ -127,7 +128,7 @@ async def send_today_mailings(bot: Bot):
             subscribers = await get_active_subscribers()
             for subscriber_chat_id in subscribers:
                 try:
-                    message_text = form_message(title,body)
+                    message_text = form_message(title,body,media_url)
                     await bot.send_message(subscriber_chat_id,message_text)
                 except Exception as e:
                     logging.exception(
@@ -156,8 +157,18 @@ def setup_scheduler(bot):
     scheduler.start()
     return scheduler
 
+#adding a keyboard for future use in callback and start functions
+kb = [
+        [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
+        [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
+        [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
+        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")],
+    ]
+keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
+
+
 @dp.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message,keyboard = keyboard):
 
     entry_text= """Привет! 👋
 Это бот про космическую гонку 1955–1975 годов.
@@ -168,44 +179,37 @@ async def cmd_start(message: Message):
 • получить случайное событие
 • включить или отключить ежедневные сообщения
 • узнать подробнее, как работает бот"""
-    kb = [
-        [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
-        [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
-        [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
-        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")],
-    ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
     await message.answer(entry_text,reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "subscribe")
-async def subscribe_response(callback: CallbackQuery):
+async def subscribe_response(callback: CallbackQuery,keyboard = keyboard):
     await register_subscriber(callback)
     text = """Готово 👍
 Теперь ты будешь получать события космической гонки в реальные даты
 """
-    await callback.message.answer(text)
+    await callback.message.answer(text,reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "unsubscribe")
-async def unsubscribe_response(callback: CallbackQuery):
+async def unsubscribe_response(callback: CallbackQuery,keyboard = keyboard):
     await unsubscribe(callback)
     text = """Ты отписался.
 Жаль. Впереди ещё много интересных событий.
 Если передумаешь — всегда можно вернуться
 """
-    await callback.message.answer(text)
+    await callback.message.answer(text,reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "random")
-async def random_response(callback: CallbackQuery):
-    await get_random_message(callback.message)
-    await callback.answer()
+async def random_response(callback: CallbackQuery,keyboard = keyboard):
+    article = await get_random_message()
+    await callback.message.answer(article, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "help")
-async def help_response(callback: CallbackQuery):
+async def help_response(callback: CallbackQuery,keyboard = keyboard):
     text = """ℹ️ Как работает бот
 
 Бот показывает события космической гонки (1955–1975) по датам.
@@ -216,12 +220,11 @@ async def help_response(callback: CallbackQuery):
 📡 Формат простой:
 короткое описание события + иногда дополнительный контекст и медиа.
 """
-    await callback.message.answer(text)
+    await callback.message.answer(text,reply_markup=keyboard)
 
 
 
-@dp.message(Command("random"))
-async def get_random_message(message: CallbackQuery | Message):
+async def get_random_message():
     sheet = await get_worksheet("mailings")
     rows = await sheet.get_all_records()
     filtered_rows = [row for row in rows if row["title"]]
@@ -230,11 +233,12 @@ async def get_random_message(message: CallbackQuery | Message):
 
     title_prefix = "Конечно, вот случайная новость из космической гонки: \n \n"
 
-    title = f"{title_prefix} {filtered_rows[chosen_article_idx]["title"]}"
+    title = f"{title_prefix}{filtered_rows[chosen_article_idx]["title"]}"
     body = filtered_rows[chosen_article_idx]["body"] 
+    media_url = filtered_rows[chosen_article_idx]["media_url"]
 
-    message_text = form_message(title,body)
-    await message.answer(message_text)
+    message_text = form_message(title,body,media_url)
+    return message_text
 
 
 @dp.message()
