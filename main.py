@@ -11,6 +11,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 from aiogram import F
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -97,9 +99,65 @@ async def get_active_subscribers():
                 subscribers.append(int(chat_id))
     return subscribers
 
-def form_message(title,body,media_url):
+
+class Form(StatesGroup):
+    waiting_for_date = State()
+
+
+@dp.message(Command("calendar"))
+async def calendar(message:Message,state: FSMContext):
+    await message.answer("Введите дату в формате ДД.ММ (например: 03.04)")
+    await state.set_state(Form.waiting_for_date)
+
+@dp.message(Form.waiting_for_date)
+async def process_date(message: Message, state: FSMContext):
+    chosen_date = message.text
+    chosen_month = int(chosen_date[3:])
+
+
+    ws = await get_worksheet("mailings")
+    rows = await ws.get_all_records()
+
+    title_prefix = "Вот событие, произошедшее в данную дату:"
+    failure_text = "По заданной вами дате ничего не найдено"
+    len_date = 8
+
+    for row in rows:
+        if not row["date"] or len(row["date"]) != len_date:
+
+            if len(row["date"]) != len_date and len(row["date"]):
+                logging.warning("Неправильный формат даты")
+            continue
+
+        day_month = row["date"][:-3]
+        curr_month = int(day_month [3:])
+        if day_month == chosen_date:
+            title = row["title"]
+            body = row["body"]
+            media_url = row["media_url"]
+            video_url = row["video_url"]
+            answer = f"{title_prefix} \n \n{form_message(title,body,media_url,video_url)}"
+            await message.answer(answer,reply_markup=keyboard)
+            break
+        if chosen_month < curr_month:
+            await message.answer(failure_text,reply_markup=keyboard)
+            break
+
+    await state.clear()
+
+            
+
+
+    
+
+def form_message(title,body,media_url,video_url):
     url_message = f"Вот еще информация по этому событию: {media_url}"
-    message = f"{title} \n \n{body} \n \n{url_message}"
+
+    if video_url:
+        video_message = f"Ссылка на видео: {video_url}"
+        message = f"{title} \n \n{body} \n \n{url_message} \n \n{video_message}"
+    else:
+        message = f"{title} \n \n{body} \n \n{url_message}"
     return message
 
 async def send_today_mailings(bot: Bot):
@@ -113,6 +171,7 @@ async def send_today_mailings(bot: Bot):
         body = str(row.get("body", "")).strip()
         media_url = str(row.get("media_url", "")).strip()
         tag = str(row.get("tag", "")).strip()
+        video_url = str(row.get("video_url", "")).strip()
         sent = normalize_bool(row.get("sent", False))
         if sent:
             continue
@@ -128,7 +187,7 @@ async def send_today_mailings(bot: Bot):
             subscribers = await get_active_subscribers()
             for subscriber_chat_id in subscribers:
                 try:
-                    message_text = form_message(title,body,media_url)
+                    message_text = form_message(title,body,media_url,video_url)
                     await bot.send_message(subscriber_chat_id,message_text)
                 except Exception as e:
                     logging.exception(
@@ -162,7 +221,7 @@ kb = [
         [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
         [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
         [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
-        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")],
+        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")]
     ]
 keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -224,6 +283,7 @@ async def help_response(callback: CallbackQuery,keyboard = keyboard):
 
 
 
+
 async def get_random_message():
     sheet = await get_worksheet("mailings")
     rows = await sheet.get_all_records()
@@ -236,8 +296,9 @@ async def get_random_message():
     title = f"{title_prefix}{filtered_rows[chosen_article_idx]["title"]}"
     body = filtered_rows[chosen_article_idx]["body"] 
     media_url = filtered_rows[chosen_article_idx]["media_url"]
+    video_url = filtered_rows[chosen_article_idx]["video_url"]
 
-    message_text = form_message(title,body,media_url)
+    message_text = form_message(title,body,media_url,video_url)
     return message_text
 
 
