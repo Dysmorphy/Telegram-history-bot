@@ -121,6 +121,7 @@ async def process_date(message: Message, state: FSMContext):
     title_prefix = "Вот событие, произошедшее в данную дату:"
     failure_text = "По заданной вами дате ничего не найдено"
     len_date = 8
+    found = False
 
     for row in rows:
         if not row["date"] or len(row["date"]) != len_date:
@@ -128,7 +129,6 @@ async def process_date(message: Message, state: FSMContext):
             if len(row["date"]) != len_date and len(row["date"]):
                 logging.warning("Неправильный формат даты")
             continue
-
         day_month = row["date"][:-3]
         curr_month = int(day_month [3:])
         if day_month == chosen_date:
@@ -138,11 +138,10 @@ async def process_date(message: Message, state: FSMContext):
             video_url = row["video_url"]
             answer = f"{title_prefix} \n \n{form_message(title,body,media_url,video_url)}"
             await message.answer(answer,reply_markup=keyboard)
+            found = True
             break
-        if chosen_month < curr_month:
-            await message.answer(failure_text,reply_markup=keyboard)
-            break
-
+    if not found:
+        await message.answer(failure_text,reply_markup=keyboard)
     await state.clear()
 
             
