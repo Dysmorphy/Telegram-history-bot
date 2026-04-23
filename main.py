@@ -160,12 +160,13 @@ def form_message(title,body,media_url,video_url):
     return message
 
 async def send_today_mailings(bot: Bot):
-    today_str = date.today().strftime("%d.%m.%Y")
+    today_no_year = date.today().strftime("%d.%m")
     ws = await get_worksheet("mailings")
     rows = await ws.get_all_records()
 
     for row_index, row in enumerate(rows, start=2):
         row_date = str(row.get("date", "")).strip()
+        row_date = '.'.join(row_date.split('.')[:2])
         title = str(row.get("title", "")).strip()
         body = str(row.get("body", "")).strip()
         media_url = str(row.get("media_url", "")).strip()
@@ -175,7 +176,7 @@ async def send_today_mailings(bot: Bot):
         if sent:
             continue
 
-        if row_date != today_str:
+        if row_date != today_no_year:
             continue
 
         if not title or not body:
@@ -207,7 +208,7 @@ def setup_scheduler(bot):
     scheduler = AsyncIOScheduler(timezone=ZoneInfo(TIMEZONE))
     scheduler.add_job(
         send_today_mailings,
-        CronTrigger(hour=13, minute=59, timezone=ZoneInfo(TIMEZONE)),
+        CronTrigger(hour=14, minute=16, timezone=ZoneInfo(TIMEZONE)),
         args=[bot],
         id="daily_mailing_job",
         replace_existing=True,
