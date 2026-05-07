@@ -1,27 +1,21 @@
-import random
-
-import os
-from dotenv import load_dotenv
-
-import logging
-import aiogram.types as types
-
 import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, Command
-from aiogram import F
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-
-import gspread_asyncio
-from google.oauth2.service_account import Credentials
-
+import logging
+import os
+import random
 from datetime import date
 from zoneinfo import ZoneInfo
 
+import aiogram.types as types
+import gspread_asyncio
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from dotenv import load_dotenv
+from google.oauth2.service_account import Credentials
 
 load_dotenv("credentials/.env")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -39,13 +33,13 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+
 def get_creds():
-    return Credentials.from_service_account_file(
-        GOOGLE_CREDS_FILE,
-        scopes=SCOPES
-    )
+    return Credentials.from_service_account_file(GOOGLE_CREDS_FILE, scopes=SCOPES)
+
 
 agcm = gspread_asyncio.AsyncioGspreadClientManager(get_creds)
+
 
 async def get_worksheet(sheet_name: str):
     client = await agcm.authorize()
@@ -53,12 +47,14 @@ async def get_worksheet(sheet_name: str):
     worksheet = await spreadsheet.worksheet(sheet_name)
     return worksheet
 
+
 def normalize_bool(value) -> bool:
     if isinstance(value, bool):
         return value
     if value is None:
         return False
     return str(value).strip().lower() in {"true", "1", "yes", "y", "да"}
+
 
 async def register_subscriber(message: CallbackQuery | Message):
     ws = await get_worksheet("subscribers")
@@ -74,6 +70,7 @@ async def register_subscriber(message: CallbackQuery | Message):
 
     await ws.append_row([user_id, username, "TRUE"])
 
+
 @dp.message(Command("unsubscribe"))
 async def unsubscribe(message: CallbackQuery | Message):
     ws = await get_worksheet("subscribers")
@@ -86,6 +83,7 @@ async def unsubscribe(message: CallbackQuery | Message):
             return
 
     await message.answer("Вы не были подписаны.")
+
 
 async def get_active_subscribers():
     ws = await get_worksheet("subscribers")
@@ -105,15 +103,15 @@ class Form(StatesGroup):
 
 
 @dp.message(Command("calendar"))
-async def calendar(message:Message,state: FSMContext):
+async def calendar(message: Message, state: FSMContext):
     await message.answer("Введите дату в формате ДД.ММ (например: 03.04)")
     await state.set_state(Form.waiting_for_date)
+
 
 @dp.message(Form.waiting_for_date)
 async def process_date(message: Message, state: FSMContext):
     chosen_date = message.text
     chosen_month = int(chosen_date[3:])
-
 
     ws = await get_worksheet("mailings")
     rows = await ws.get_all_records()
@@ -130,26 +128,22 @@ async def process_date(message: Message, state: FSMContext):
                 logging.warning("Неправильный формат даты")
             continue
         day_month = row["date"][:-3]
-        curr_month = int(day_month [3:])
+        curr_month = int(day_month[3:])
         if day_month == chosen_date:
             title = row["title"]
             body = row["body"]
             media_url = row["media_url"]
             video_url = row["video_url"]
             answer = f"{title_prefix} \n \n{form_message(title,body,media_url,video_url)}"
-            await message.answer(answer,reply_markup=keyboard)
+            await message.answer(answer, reply_markup=keyboard)
             found = True
             break
     if not found:
-        await message.answer(failure_text,reply_markup=keyboard)
+        await message.answer(failure_text, reply_markup=keyboard)
     await state.clear()
 
-            
 
-
-    
-
-def form_message(title,body,media_url,video_url):
+def form_message(title, body, media_url, video_url):
     url_message = f"Вот еще информация по этому событию: {media_url}"
 
     if video_url:
@@ -158,6 +152,7 @@ def form_message(title,body,media_url,video_url):
     else:
         message = f"{title} \n \n{body} \n \n{url_message}"
     return message
+
 
 async def send_today_mailings(bot: Bot):
     today_no_year = date.today().strftime("%d.%m")
@@ -187,14 +182,10 @@ async def send_today_mailings(bot: Bot):
             subscribers = await get_active_subscribers()
             for subscriber_chat_id in subscribers:
                 try:
-                    message_text = form_message(title,body,media_url,video_url)
-                    await bot.send_message(subscriber_chat_id,message_text)
+                    message_text = form_message(title, body, media_url, video_url)
+                    await bot.send_message(subscriber_chat_id, message_text)
                 except Exception as e:
-                    logging.exception(
-                        "Ошибка отправки пользователю %s: %s",
-                        subscriber_chat_id,
-                        e
-                    )
+                    logging.exception("Ошибка отправки пользователю %s: %s", subscriber_chat_id, e)
             logging.info("Отправлено всем активным подписчикам: row=%s", row_index)
 
             # отключено до деплоя (мб можно вообще убрать обработку уже отправленных)
@@ -216,20 +207,21 @@ def setup_scheduler(bot):
     scheduler.start()
     return scheduler
 
-#adding a keyboard for future use in callback and start functions
+
+# adding a keyboard for future use in callback and start functions
 kb = [
-        [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
-        [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
-        [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
-        [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")]
-    ]
+    [types.InlineKeyboardButton(text="🚀 Случайное событие", callback_data="random")],
+    [types.InlineKeyboardButton(text="📡 Подписаться", callback_data="subscribe")],
+    [types.InlineKeyboardButton(text="🔕 Отписаться", callback_data="unsubscribe")],
+    [types.InlineKeyboardButton(text="ℹ️ Как это работает", callback_data="help")],
+]
 keyboard = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
 
 @dp.message(CommandStart())
-async def cmd_start(message: Message,keyboard = keyboard):
+async def cmd_start(message: Message, keyboard=keyboard):
 
-    entry_text= """Привет! 👋
+    entry_text = """Привет! 👋
 Это бот про космическую гонку 1955–1975 годов.
 
 Я присылаю реальные события в те дни, когда они произошли — запуски, аварии, первые полёты и т.д.
@@ -239,36 +231,36 @@ async def cmd_start(message: Message,keyboard = keyboard):
 • включить или отключить ежедневные сообщения
 • узнать подробнее, как работает бот"""
 
-    await message.answer(entry_text,reply_markup=keyboard)
+    await message.answer(entry_text, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "subscribe")
-async def subscribe_response(callback: CallbackQuery,keyboard = keyboard):
+async def subscribe_response(callback: CallbackQuery, keyboard=keyboard):
     await register_subscriber(callback)
     text = """Готово 👍
 Теперь ты будешь получать события космической гонки в реальные даты
 """
-    await callback.message.answer(text,reply_markup=keyboard)
+    await callback.message.answer(text, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "unsubscribe")
-async def unsubscribe_response(callback: CallbackQuery,keyboard = keyboard):
+async def unsubscribe_response(callback: CallbackQuery, keyboard=keyboard):
     await unsubscribe(callback)
     text = """Ты отписался.
 Жаль. Впереди ещё много интересных событий.
 Если передумаешь — всегда можно вернуться
 """
-    await callback.message.answer(text,reply_markup=keyboard)
+    await callback.message.answer(text, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "random")
-async def random_response(callback: CallbackQuery,keyboard = keyboard):
+async def random_response(callback: CallbackQuery, keyboard=keyboard):
     article = await get_random_message()
     await callback.message.answer(article, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "help")
-async def help_response(callback: CallbackQuery,keyboard = keyboard):
+async def help_response(callback: CallbackQuery, keyboard=keyboard):
     text = """ℹ️ Как работает бот
 
 Бот показывает события космической гонки (1955–1975) по датам.
@@ -279,9 +271,7 @@ async def help_response(callback: CallbackQuery,keyboard = keyboard):
 📡 Формат простой:
 короткое описание события + иногда дополнительный контекст и медиа.
 """
-    await callback.message.answer(text,reply_markup=keyboard)
-
-
+    await callback.message.answer(text, reply_markup=keyboard)
 
 
 async def get_random_message():
@@ -289,26 +279,22 @@ async def get_random_message():
     rows = await sheet.get_all_records()
     filtered_rows = [row for row in rows if row["title"]]
     num_elements = len(filtered_rows)
-    chosen_article_idx = random.randint(0,num_elements-1)
+    chosen_article_idx = random.randint(0, num_elements - 1)
 
     title_prefix = "Конечно, вот случайная новость из космической гонки: \n \n"
 
     title = f"{title_prefix}{filtered_rows[chosen_article_idx]["title"]}"
-    body = filtered_rows[chosen_article_idx]["body"] 
+    body = filtered_rows[chosen_article_idx]["body"]
     media_url = filtered_rows[chosen_article_idx]["media_url"]
     video_url = filtered_rows[chosen_article_idx]["video_url"]
 
-    message_text = form_message(title,body,media_url,video_url)
+    message_text = form_message(title, body, media_url, video_url)
     return message_text
 
 
 @dp.message()
 async def handle_unknown_command(message: Message):
     await message.answer("Неизвестная команда")
-
-
-
-
 
 
 async def test():
