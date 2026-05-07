@@ -161,7 +161,7 @@ async def send_today_mailings(bot: Bot):
 
     for row_index, row in enumerate(rows, start=2):
         row_date = str(row.get("date", "")).strip()
-        row_date = '.'.join(row_date.split('.')[:2])
+        row_date = ".".join(row_date.split(".")[:2])
         title = str(row.get("title", "")).strip()
         body = str(row.get("body", "")).strip()
         media_url = str(row.get("media_url", "")).strip()
